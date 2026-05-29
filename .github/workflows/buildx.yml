@@ -11,9 +11,9 @@ on:
         required: true
         default: arkx82/Kavita
       kavita_version:
-        description: Kavita release tag to package. Use latest to resolve the latest release.
+        description: Kavita release tag to package. Use gds-latest for the GDS branch build, or latest to resolve GitHub's latest release.
         required: true
-        default: latest
+        default: gds-latest
       kavita_download_url_template:
         description: Optional artifact URL template. Supports {version} and {arch}.
         required: false
@@ -27,6 +27,7 @@ env:
   IMAGE_NAME: ghcr.io/arkx82/kavita
   DEFAULT_KAVITA_REPO: arkx82/Kavita
   DEFAULT_PLATFORMS: linux/amd64,linux/arm64
+  DEFAULT_KAVITA_VERSION: gds-latest
 
 jobs:
   buildx:
@@ -62,12 +63,20 @@ jobs:
           set -euo pipefail
 
           KAVITA_REPO="${INPUT_KAVITA_REPO:-$DEFAULT_KAVITA_REPO}"
-          KAVITA_VER="${INPUT_KAVITA_VERSION:-latest}"
+          KAVITA_VER="${INPUT_KAVITA_VERSION:-$DEFAULT_KAVITA_VERSION}"
           KAVITA_DOWNLOAD_URL_TEMPLATE="${INPUT_KAVITA_DOWNLOAD_URL_TEMPLATE:-}"
           PLATFORMS="${INPUT_PLATFORMS:-$DEFAULT_PLATFORMS}"
 
           if [ "$KAVITA_VER" = "latest" ]; then
-            KAVITA_VER="$(curl -fsSL "https://api.github.com/repos/${KAVITA_REPO}/releases/latest" | jq -r '.tag_name')"
+            KAVITA_VER="$(curl -fsSL "https://api.github.com/repos/${KAVITA_REPO}/releases/latest" | jq -r '.tag_name' || true)"
+            if [ -z "$KAVITA_VER" ]; then
+              KAVITA_VER="$(curl -fsSL "https://api.github.com/repos/${KAVITA_REPO}/releases?per_page=1" | jq -r '.[0].tag_name')"
+            fi
+          fi
+
+          if [ -z "$KAVITA_VER" ] || [ "$KAVITA_VER" = "null" ]; then
+            echo "Unable to resolve Kavita release tag for ${KAVITA_REPO}" >&2
+            exit 1
           fi
 
           if [ -z "$KAVITA_DOWNLOAD_URL_TEMPLATE" ]; then
