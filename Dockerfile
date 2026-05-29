@@ -52,19 +52,6 @@ RUN \
     fi && \
     rm -rf /bar/kavita/config
 
-# add overlayfs-tools
-RUN \
-    apt-get update && \
-    apt-get install -yq --no-install-recommends \
-        sudo python3-pip \
-        git libattr1-dev gcc make && \
-    python3 -m pip install meson ninja && \
-    git clone https://github.com/kmxz/overlayfs-tools /tmp/ofs && \
-    cd /tmp/ofs && \
-    meson setup builddir && cd builddir && meson compile && \
-    mkdir -p /bar/usr/local/bin && \
-    mv overlay /bar/usr/local/bin/
-
 # add local files
 COPY root/ /bar/
 
@@ -73,9 +60,7 @@ RUN \
     echo "**** permissions ****" && \
     chmod a+x \
         /bar/kavita/Kavita \
-        /bar/usr/local/bin/* \
         /bar/etc/cont-init.d/* \
-        /bar/etc/cont-finish.d/* \
         /bar/etc/s6-overlay/s6-rc.d/*/run
 
 RUN \
@@ -107,14 +92,12 @@ RUN \
     apt-get install -yq --no-install-recommends \
         ca-certificates \
         curl \
-        fuse3 \
         jq \
         libgdiplus \
         libicu-dev \
         libssl1.1 \
         sqlite3 \
         && \
-    sed -i 's/#user_allow_other/user_allow_other/' /etc/fuse.conf && \
     echo "**** cleanup ****" && \
     apt-get clean autoclean && \
     apt-get autoremove -y && \
@@ -140,7 +123,7 @@ ENV \
 EXPOSE 5000
 
 WORKDIR ${KAVITA_CONFIG_DIR}
-VOLUME ${KAVITA_CONFIG_DIR} /overlay
+VOLUME ${KAVITA_CONFIG_DIR}
 
 # HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=3 \
 #     CMD curl --fail http://localhost:5000/api/health || exit 1
