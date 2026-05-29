@@ -21,18 +21,3 @@ if [ ! -f "${KAVITA_CONFIG_FILE}" ]; then
 fi
 
 fix_ownership "$KAVITA_CONFIG_DIR" /kavita/wwwroot
-
-if [ "$ATIVAK" = "1" ]; then
-    rm -rf \
-        /overlay/work \
-        /ativak/config && \
-    mkdir -p \
-        /overlay/{upper,work} \
-        /ativak/config
-
-    mount -t overlay overlay \
-        -o lowerdir=/kavita/config,upperdir=/overlay/upper,workdir=/overlay/work \
-        /ativak/config
-
-    fix_ownership /ativak/config /ativak/wwwroot
-fi

@@ -1,67 +1,97 @@
 name: buildx
 
 on:
-  # push:
-  #   branches:
-  #     - 'main'
+  push:
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      kavita_repo:
+        description: Kavita repository that owns the release artifacts
+        required: true
+        default: arkx82/Kavita
+      kavita_version:
+        description: Kavita release tag to package. Use latest to resolve the latest release.
+        required: true
+        default: latest
+      kavita_download_url_template:
+        description: Optional artifact URL template. Supports {version} and {arch}.
+        required: false
+        default: ''
+      platforms:
+        description: Docker platforms to build
+        required: true
+        default: linux/amd64,linux/arm64
 
 env:
-  IMAGE_NAME: ghcr.io/by275/kavita
-  KAVITA_VER: unknown
-  ATIVAK_VER: unknown
+  IMAGE_NAME: ghcr.io/arkx82/kavita
+  DEFAULT_KAVITA_REPO: arkx82/Kavita
+  DEFAULT_PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   buildx:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       packages: write
     steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v6
-      -
-        name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-      -
-        name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
-      -
-        name: Login to ghcr.io
-        uses: docker/login-action@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: Set global environment variables
+
+      - name: Resolve Kavita artifact settings
         shell: bash
+        env:
+          INPUT_KAVITA_REPO: ${{ github.event.inputs.kavita_repo }}
+          INPUT_KAVITA_VERSION: ${{ github.event.inputs.kavita_version }}
+          INPUT_KAVITA_DOWNLOAD_URL_TEMPLATE: ${{ github.event.inputs.kavita_download_url_template }}
+          INPUT_PLATFORMS: ${{ github.event.inputs.platforms }}
         run: |
-          echo "KAVITA_VER=$(curl -fsSL https://api.github.com/repos/by275/docker-kavita/releases/latest | jq -r '.tag_name')" >> $GITHUB_ENV
-          echo "ATIVAK_VER=$(curl -fsSL https://api.github.com/repos/Kareadita/Kavita/releases/latest | jq -r '.tag_name')" >> $GITHUB_ENV
-      -
-        name: Buildx and Push
-        uses: docker/build-push-action@v7
+          set -euo pipefail
+
+          KAVITA_REPO="${INPUT_KAVITA_REPO:-$DEFAULT_KAVITA_REPO}"
+          KAVITA_VER="${INPUT_KAVITA_VERSION:-latest}"
+          KAVITA_DOWNLOAD_URL_TEMPLATE="${INPUT_KAVITA_DOWNLOAD_URL_TEMPLATE:-}"
+          PLATFORMS="${INPUT_PLATFORMS:-$DEFAULT_PLATFORMS}"
+
+          if [ "$KAVITA_VER" = "latest" ]; then
+            KAVITA_VER="$(curl -fsSL "https://api.github.com/repos/${KAVITA_REPO}/releases/latest" | jq -r '.tag_name')"
+          fi
+
+          if [ -z "$KAVITA_DOWNLOAD_URL_TEMPLATE" ]; then
+            KAVITA_DOWNLOAD_URL_TEMPLATE="https://github.com/${KAVITA_REPO}/releases/download/{version}/kavita-linux-{arch}.tar.gz"
+          fi
+
+          echo "KAVITA_REPO=$KAVITA_REPO" >> "$GITHUB_ENV"
+          echo "KAVITA_VER=$KAVITA_VER" >> "$GITHUB_ENV"
+          echo "KAVITA_DOWNLOAD_URL_TEMPLATE=$KAVITA_DOWNLOAD_URL_TEMPLATE" >> "$GITHUB_ENV"
+          echo "PLATFORMS=$PLATFORMS" >> "$GITHUB_ENV"
+
+      - name: Buildx and Push
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           tags: |
             ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:gds
             ${{ env.IMAGE_NAME }}:${{ env.KAVITA_VER }}
-            ${{ env.IMAGE_NAME }}:${{ env.KAVITA_VER }}-${{ env.ATIVAK_VER }}
-          platforms: linux/amd64,linux/arm64
+            ${{ env.IMAGE_NAME }}:${{ env.KAVITA_VER }}-gds
+          platforms: ${{ env.PLATFORMS }}
           push: true
           build-args: |
+            KAVITA_REPO=${{ env.KAVITA_REPO }}
             KAVITA_VER=${{ env.KAVITA_VER }}
-            ATIVAK_VER=${{ env.ATIVAK_VER }}
-      -
-        name: Notification
-        uses: sarisia/actions-status-discord@v1
-        if: always()
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          status: ${{ job.status }}
-          description: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ env.KAVITA_VER }}
-            ${{ env.IMAGE_NAME }}:${{ env.KAVITA_VER }}-${{ env.ATIVAK_VER }}
+            KAVITA_DOWNLOAD_URL_TEMPLATE=${{ env.KAVITA_DOWNLOAD_URL_TEMPLATE }}

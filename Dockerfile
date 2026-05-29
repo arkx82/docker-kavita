@@ -1,15 +1,19 @@
 ARG UBUNTU_VER=20.04
+ARG BASE_IMAGE=ghcr.io/by275/base:ubuntu${UBUNTU_VER}
+ARG PREBUILT_IMAGE=ghcr.io/by275/base:ubuntu
 
-FROM ghcr.io/by275/base:ubuntu${UBUNTU_VER} AS base
-FROM ghcr.io/by275/base:ubuntu AS prebuilt
+FROM ${BASE_IMAGE} AS base
+FROM ${PREBUILT_IMAGE} AS prebuilt
 
-# 
+#
 # BUILD
-# 
+#
 FROM base AS builder
 
+ARG TARGETARCH
 ARG KAVITA_VER
-ARG ATIVAK_VER
+ARG KAVITA_REPO=arkx82/Kavita
+ARG KAVITA_DOWNLOAD_URL_TEMPLATE=
 
 ARG DEBIAN_FRONTEND="noninteractive"
 
@@ -22,41 +26,31 @@ RUN \
     echo "**** directories ****" && \
     mkdir -p \
         /bar/defaults \
-        /bar/ativak \
         /bar/kavita
 
 # add kavita
 RUN \
-    ARCH="$(dpkg --print-architecture)" && \
-    if [ $ARCH = "amd64" ]; then KAVITA_ARCH="x64"; \
-    elif [ $ARCH = "arm64" ]; then KAVITA_ARCH="arm64"; \
+    if [ -z "${KAVITA_VER}" ]; then echo "KAVITA_VER is required" && exit 1; fi && \
+    ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
+    if [ "$ARCH" = "amd64" ]; then KAVITA_ARCH="x64"; \
+    elif [ "$ARCH" = "arm64" ]; then KAVITA_ARCH="arm64"; \
     else echo "UNKNOWN ARCH: $ARCH" && exit 1; fi && \
-    BASE_VER="$(echo "${KAVITA_VER}" | cut -d- -f1)" && \
-    echo "**** installing kavita ${BASE_VER} ${KAVITA_ARCH} ****" && \
-    downloadURL="https://github.com/Kareadita/Kavita/releases/download/${BASE_VER}/kavita-linux-${KAVITA_ARCH}.tar.gz" && \
-    curl -sL "$downloadURL" | tar -zxf - -C /bar/kavita --strip-components=1 --no-same-owner && \
-    mv /bar/kavita/config/appsettings.json /bar/defaults/ && \
+    echo "**** installing kavita ${KAVITA_VER} ${KAVITA_ARCH} ****" && \
+    if [ -n "${KAVITA_DOWNLOAD_URL_TEMPLATE}" ]; then \
+        downloadURL="$(printf '%s' "${KAVITA_DOWNLOAD_URL_TEMPLATE}" | sed "s/{version}/${KAVITA_VER}/g; s/{arch}/${KAVITA_ARCH}/g")"; \
+    else \
+        downloadURL="https://github.com/${KAVITA_REPO}/releases/download/${KAVITA_VER}/kavita-linux-${KAVITA_ARCH}.tar.gz"; \
+    fi && \
+    echo "**** downloading ${downloadURL} ****" && \
+    curl -fsSL "$downloadURL" | tar -zxf - -C /bar/kavita --strip-components=1 --no-same-owner && \
+    if [ -f /bar/kavita/config/appsettings-init.json ]; then \
+        mv /bar/kavita/config/appsettings-init.json /bar/defaults/appsettings.json; \
+    elif [ -f /bar/kavita/config/appsettings.json ]; then \
+        mv /bar/kavita/config/appsettings.json /bar/defaults/appsettings.json; \
+    else \
+        echo "Missing appsettings template in Kavita package" && exit 1; \
+    fi && \
     rm -rf /bar/kavita/config
-
-# apply patch
-RUN \
-    PATCH_VER="$(echo "${KAVITA_VER}" | cut -d- -f2)" && \    
-    echo "**** applying patch v${PATCH_VER} ****" && \
-    downloadURL="https://github.com/by275/docker-kavita/releases/download/${KAVITA_VER}/patch.tar.gz" && \
-    curl -sL "$downloadURL" | tar -zxf - -C /bar/kavita --no-same-owner && \
-    curl -sL -o /bar/kavita/API.deps.json \
-        "https://github.com/by275/docker-kavita/releases/download/${KAVITA_VER}/API.deps.$(dpkg --print-architecture).json"
-
-# add ativak
-RUN \
-    ARCH="$(dpkg --print-architecture)" && \
-    if [ $ARCH = "amd64" ]; then KAVITA_ARCH="x64"; \
-    elif [ $ARCH = "arm64" ]; then KAVITA_ARCH="arm64"; \
-    else echo "UNKNOWN ARCH: $ARCH" && exit 1; fi && \
-    echo "**** installing kavita ${ATIVAK_VER} ${KAVITA_ARCH} ****" && \
-    downloadURL="https://github.com/Kareadita/Kavita/releases/download/${ATIVAK_VER}/kavita-linux-${KAVITA_ARCH}.tar.gz" && \
-    curl -sL "$downloadURL" | tar -zxf - -C /bar/ativak --strip-components=1 --no-same-owner && \
-    rm -rf /bar/ativak/config
 
 # add overlayfs-tools
 RUN \
@@ -79,7 +73,6 @@ RUN \
     echo "**** permissions ****" && \
     chmod a+x \
         /bar/kavita/Kavita \
-        /bar/ativak/Kavita \
         /bar/usr/local/bin/* \
         /bar/etc/cont-init.d/* \
         /bar/etc/cont-finish.d/* \
@@ -98,12 +91,12 @@ RUN \
     rm /bar/package/admin/s6-overlay/etc/s6-rc/sources/top/contents.d/legacy-services && \
     touch /bar/package/admin/s6-overlay/etc/s6-rc/sources/top/contents.d/app
 
-# 
+#
 # RELEASE
-# 
+#
 FROM base
-LABEL maintainer="by275"
-LABEL org.opencontainers.image.source=https://github.com/by275/docker-kavita
+LABEL maintainer="arkx82"
+LABEL org.opencontainers.image.source=https://github.com/arkx82/docker-kavita
 
 ARG DEBIAN_FRONTEND="noninteractive"
 
@@ -141,7 +134,8 @@ ENV \
     TZ=Asia/Seoul \
     DOTNET_RUNNING_IN_CONTAINER=true \
     KAVITA_CONFIG_DIR="/kavita/config" \
-    KAVITA_CONFIG_FILE="/kavita/config/appsettings.json"
+    KAVITA_CONFIG_FILE="/kavita/config/appsettings.json" \
+    KAVITA_GDS_TAR=""
 
 EXPOSE 5000
 
